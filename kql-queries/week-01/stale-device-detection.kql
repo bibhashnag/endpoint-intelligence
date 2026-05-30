@@ -1,0 +1,42 @@
+// ============================================================
+// Query: Stale Device Detection
+// Purpose: Find devices that have stopped checking into Intune
+// Business value: Stale devices are security blind spots —
+//   not receiving patches, policy, or security signals. They
+//   also skew compliance metrics. This query is the foundation
+//   of any autonomous remediation workflow (Phase 2).
+// Observability layer: Query (absence-of-signal detection)
+// Tables: IntuneDevices (Log Analytics)
+// ============================================================
+
+let StaleThresholdDays = 14;         // parameterise thresholds
+let CriticalThresholdDays = 30;
+
+IntuneDevices
+| where TimeGenerated > ago(1d)
+| extend
+    DaysSinceSync = datetime_diff('day', now(), LastSyncTime),
+    DaysSinceEnroll = datetime_diff('day', now(), EnrollmentDate)
+| where DaysSinceSync >= StaleThresholdDays
+| extend
+    StaleCategory = case(
+        DaysSinceSync >= CriticalThresholdDays, "Critical — 30d+",
+        DaysSinceSync >= StaleThresholdDays,    "Stale — 14-29d",
+        "Active"
+    ),
+    // flag devices that enrolled recently but already went stale
+    SuspectEnrollment = iff(
+        DaysSinceEnroll < 30 and DaysSinceSync > 7,
+        "YES — recently enrolled but stale", "no"
+    )
+| project
+    DeviceName,
+    UPN,
+    OS,
+    OSVersion,
+    ComplianceState,
+    LastSyncTime,
+    DaysSinceSync,
+    StaleCategory,
+    SuspectEnrollment
+| sort by DaysSinceSync desc       // longest-stale first

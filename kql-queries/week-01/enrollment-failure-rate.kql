@@ -1,0 +1,31 @@
+// ============================================================
+// Query: Enrollment Failure Rate Analysis
+// Purpose: Surface and categorise enrollment failures by reason
+// Business value: Systemic enrollment failures block device
+//   onboarding at scale. One misconfigured policy can prevent
+//   hundreds of devices from enrolling simultaneously.
+// Observability layer: Query (operational signal)
+// Tables: IntuneOperationalLogs (Log Analytics)
+// ============================================================
+
+IntuneOperationalLogs
+| where TimeGenerated > ago(7d)
+| where OperationName == "Enrollment"
+| extend
+    ParsedResult = parse_json(Properties),
+    EnrollmentDay = bin(TimeGenerated, 1d)
+| extend
+    FailureReason  = tostring(ParsedResult.FailureReason),
+    EnrollmentType = tostring(ParsedResult.EnrollmentType),
+    IsFailure      = iff(ResultType == "Failure", 1, 0)
+| summarize
+    TotalAttempts  = count(),
+    FailureCount   = sum(IsFailure),
+    FailureReasons = make_set(FailureReason, 10)
+    by EnrollmentDay, EnrollmentType
+| extend
+    FailureRate = round(100.0 * FailureCount / TotalAttempts, 1)
+| where FailureRate > 0
+| sort by EnrollmentDay desc, FailureRate desc
+| render timechart
+    with (ycolumns=FailureRate)

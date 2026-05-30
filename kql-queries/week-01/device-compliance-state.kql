@@ -1,0 +1,30 @@
+// ============================================================
+// Query: Device Compliance State Overview
+// Purpose: Operational baseline — compliance % by OS platform
+// Business value: Identifies which OS populations are failing
+//   compliance and quantifies the gap. Input for risk reporting.
+// Observability layer: Query
+// Tables: IntuneDeviceComplianceOrg (Log Analytics)
+// ============================================================
+
+IntuneDeviceComplianceOrg
+| where TimeGenerated > ago(1d)
+| summarize
+    TotalDevices    = count(),
+    Compliant       = countif(ComplianceState == "compliant"),
+    NonCompliant    = countif(ComplianceState == "noncompliant"),
+    GracePeriod     = countif(ComplianceState == "inGracePeriod"),
+    ConfigError     = countif(ComplianceState == "configManager")
+    by OS
+| extend
+    ComplianceRate  = round(100.0 * Compliant / TotalDevices, 1),
+    RiskExposure    = round(100.0 * NonCompliant / TotalDevices, 1)
+| project
+    OS,
+    TotalDevices,
+    Compliant,
+    NonCompliant,
+    GracePeriod,
+    ComplianceRate,
+    RiskExposure
+| sort by ComplianceRate asc           // worst compliance first

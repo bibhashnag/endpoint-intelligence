@@ -1,0 +1,32 @@
+// ============================================================
+// Query: Patch Compliance Status by Update Age
+// Purpose: Categorise the device fleet by patch currency
+// Business value: Identifies patch debt accumulation over time.
+//   Devices in 60d/90d+ buckets carry significant CVE exposure.
+// Observability layer: Query
+// Tables: IntuneDevices (Log Analytics)
+// ============================================================
+
+IntuneDevices
+| where TimeGenerated > ago(1d)
+| where OS == "Windows"
+| extend
+    DaysSinceUpdate = datetime_diff('day', now(), LastUpdateTime),
+    PatchAge = case(
+        LastUpdateTime > ago(30d),  "Current (0-30d)",
+        LastUpdateTime > ago(60d),  "Aging (31-60d)",
+        LastUpdateTime > ago(90d),  "At Risk (61-90d)",
+        "Critical (90d+)"
+    )
+| summarize
+    DeviceCount       = count(),
+    AvgDaysSinceUpdate = round(avg(DaysSinceUpdate), 0),
+    MaxDaysSinceUpdate = max(DaysSinceUpdate)
+    by PatchAge
+| extend
+    RiskLevel = case(
+        PatchAge == "Critical (90d+)",  "HIGH",
+        PatchAge == "At Risk (61-90d)",  "MEDIUM",
+        "LOW"
+    )
+| sort by AvgDaysSinceUpdate desc

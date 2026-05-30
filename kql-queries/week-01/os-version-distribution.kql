@@ -1,0 +1,40 @@
+// ============================================================
+// Query: OS Version Distribution and Lifecycle Risk
+// Purpose: Map fleet OS versions and flag EOL/near-EOL builds
+// Business value: Quantifies lifecycle debt. EOL devices expose
+//   the org to unpatched CVEs with no vendor remediation path.
+//   This data drives upgrade prioritisation conversations.
+// Observability layer: Query (inventory signal)
+// Tables: IntuneDevices (Log Analytics)
+// ============================================================
+
+IntuneDevices
+| where TimeGenerated > ago(1d)
+| where OS == "Windows"
+| extend
+    // Windows 11 versions and lifecycle classification
+    LifecycleStatus = case(
+        OSVersion startswith "10.0.26100", "Current — Win11 24H2",
+        OSVersion startswith "10.0.22631", "Supported — Win11 23H2",
+        OSVersion startswith "10.0.22621", "Near EOL — Win11 22H2",
+        OSVersion startswith "10.0.19045", "Supported — Win10 22H2",
+        OSVersion startswith "10.0.19044", "EOL — Win10 21H2",
+        "Unknown/Legacy"
+    ),
+    IsEOL = iff(
+        OSVersion startswith "10.0.19044" or
+        OSVersion startswith "10.0.19043",
+        true, false
+    )
+| summarize
+    DeviceCount = count(),
+    EOLDevices  = countif(IsEOL == true)
+    by OSVersion, LifecycleStatus
+| extend
+    FleetShare = round(100.0 * DeviceCount / toscalar(
+        IntuneDevices
+        | where TimeGenerated > ago(1d)
+        | where OS == "Windows"
+        | count
+    ), 1)
+| sort by DeviceCount desc
